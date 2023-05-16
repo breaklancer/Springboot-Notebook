@@ -1,7 +1,6 @@
 package com.xiaofu.aspect;
 
 import com.xiaofu.annotation.EncryptField;
-import com.xiaofu.annotation.EncryptMethod;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.*;
@@ -9,9 +8,11 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.jasypt.encryption.StringEncryptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.util.SerializationUtils;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.util.*;
 
 import static com.xiaofu.enums.EncryptConstant.DECRYPT;
@@ -45,17 +46,13 @@ public class EncryptHandler {
     public void encrypt(ProceedingJoinPoint joinPoint) {
 
         try {
+            Method method = ((MethodSignature)joinPoint.getSignature()).getMethod();
+            Parameter[] parameters = method.getParameters();
             Object[] objects = joinPoint.getArgs();
-            if (objects.length != 0) {
-                for (Object o : objects) {
-                    if (o instanceof String) {
-                        encryptValue(o);
-                    } else {
-                        handler(o, ENCRYPT);
-                    }
-                    //TODO 其余类型自己看实际情况加
-                }
+            for (int i = 0; i < parameters.length; i++) {
+                objects[i] = handler(objects[i],parameters[i],ENCRYPT);
             }
+
         } catch (IllegalAccessException e) {
             e.printStackTrace();
         }
@@ -66,12 +63,7 @@ public class EncryptHandler {
         try {
             Object obj = joinPoint.proceed();
             if (obj != null) {
-                if (obj instanceof String) {
-                    decryptValue(obj);
-                } else {
-                    result = handler(obj, DECRYPT);
-                }
-                //TODO 其余类型自己看实际情况加
+                    result = handler(obj,null, DECRYPT);
             }
         } catch (Throwable e) {
             e.printStackTrace();
@@ -79,26 +71,72 @@ public class EncryptHandler {
         return result;
     }
 
-    private Object handler(Object obj, String type) throws IllegalAccessException {
+    private Object handler(Object obj,Parameter parameter, String type) throws IllegalAccessException {
 
         if (Objects.isNull(obj)) {
             return null;
         }
-        Field[] fields = obj.getClass().getDeclaredFields();
-        for (Field field : fields) {
-            boolean hasSecureField = field.isAnnotationPresent(EncryptField.class);
-            if (hasSecureField) {
-                field.setAccessible(true);
-                String realValue = (String) field.get(obj);
-                String value;
-                if (DECRYPT.equals(type)) {
-                    value = stringEncryptor.decrypt(realValue);
-                } else {
-                    value = stringEncryptor.encrypt(realValue);
-                }
-                field.set(obj, value);
+        if (obj instanceof String) {
+            if(DECRYPT.equals(type)){
+                return decryptValue(obj);
+            }else {
+                if(parameter!=null){
+                    boolean hasSecureField = parameter.isAnnotationPresent(EncryptField.class);
+                    if(hasSecureField){
+                        obj = encryptValue(obj);
+                    }
+                }else {obj = encryptValue(obj);}
             }
-        }
+        } else {
+            Field[] fields = obj.getClass().getDeclaredFields();
+            for (Field field : fields) {
+                field.setAccessible(true);
+                Object realValue = field.get(obj);
+                boolean hasSecureField = field.isAnnotationPresent(EncryptField.class);
+                if (hasSecureField) {
+                    if (realValue instanceof String) {
+                        field.setAccessible(true);
+                        String value;
+                        if (DECRYPT.equals(type)) {
+                            value = stringEncryptor.decrypt(realValue.toString());
+                        } else {
+                            value = stringEncryptor.encrypt(realValue.toString());
+                        }
+                        field.set(obj, value);
+                    } else if (realValue instanceof List) {
+                        List list = (List) realValue;
+                        if (Objects.nonNull(list)) {
+                            for (Object object : list) {
+                                if (Objects.nonNull(object)) {
+                                    handler(object,null, type);
+                                }
+                            }
+                        }
+                    } else if (realValue instanceof Set) {
+                        Set set = (Set) realValue;
+                        if (Objects.nonNull(set)) {
+                            for (Object object : set) {
+                                if (Objects.nonNull(object)) {
+                                    handler(object,null, type);
+                                }
+                            }
+                        }
+                    } else if (realValue instanceof Map) {
+                        Map map = (Map) realValue;
+                        if (Objects.nonNull(map)) {
+                            for (Object object : map.entrySet()) {
+                                Map.Entry entry = (Map.Entry) object;
+                                if (Objects.nonNull(entry.getValue())) {
+                                    handler(entry.getValue(),null, type);
+                                }
+                            }
+                        }
+                    } else {
+                                handler(realValue,null, type);
+                        }
+                    }
+                }
+            }
         return obj;
     }
 

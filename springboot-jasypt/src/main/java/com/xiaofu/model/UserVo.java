@@ -1,9 +1,11 @@
 package com.xiaofu.model;
 
 import com.xiaofu.annotation.EncryptField;
+import lombok.Builder;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * @Auther: 公众号：程序员小富
@@ -11,6 +13,7 @@ import java.io.Serializable;
  * @Description:
  */
 @Data
+@Builder
 public class UserVo implements Serializable {
 
     private Long userId;
@@ -22,4 +25,7 @@ public class UserVo implements Serializable {
     private String address;
 
     private String age;
+
+    @EncryptField
+    private List<String> str1;
 }
